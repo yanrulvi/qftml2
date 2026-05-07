@@ -165,7 +165,7 @@ def create_boundary_config() -> ExperimentConfig:
         Tmin=2.0,
         Tmax=22.0,
         N_times=10,
-        N_tom=1e10,
+        N_tom=1e5,  # <-- УМЕНЬШЕНО ДО 100 000
     )
 
     config.ml = MLConfig(
@@ -210,7 +210,7 @@ def create_thermometry_config() -> ExperimentConfig:
         Tmin=0.02,
         Tmax=0.20,
         N_times=10,
-        N_tom=1e15,  # КАК В СТАТЬЕ
+        N_tom=1e8,  # <-- УМЕНЬШЕНО ДО 100 000 000
     )
 
     config.ml = MLConfig(

@@ -106,17 +106,13 @@ def evaluate(
             preds = outputs.squeeze().cpu().numpy()
             targets = y.cpu().numpy()
 
+            # Денормализация
             if y_min is not None and y_max is not None:
                 preds = (preds - 0.25) * 2.0 * (y_max - y_min) + y_min
                 targets = (targets - 0.25) * 2.0 * (y_max - y_min) + y_min
 
-            # Точность: попадание в правильный бин
-            unique_targets = np.unique(targets)
-            if len(unique_targets) > 1:
-                bin_width = (y_max - y_min) / (len(unique_targets) - 1)
-            else:
-                bin_width = 0.01
-            accurate = np.abs(preds - targets) < (bin_width / 2.0)
+            # КАК В СТАТЬЕ: попадание в ±1% от истинной температуры
+            accurate = np.abs(preds - targets) < 0.01 * np.abs(targets)
             accuracy = np.mean(accurate)
 
         else:

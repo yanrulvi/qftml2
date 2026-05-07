@@ -192,7 +192,7 @@ class LatticeField:
         F[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = F_p
 
         # p-часть детектора: индекс 2N+1
-        F[2 * N + 1, 2 * N + 1] = 1.0  # Единичный коэффициент при p²_det
+        F[2 * N + 1, 2 * N + 1] = omega_D  # Единичный коэффициент при p²_det
 
         # Взаимодействие детектор-поле (SetupSAHam)
         if detector_distance is None:
@@ -229,74 +229,64 @@ class LatticeField:
         temperature: float = 0.0,
         is_signal: bool = False,
         Gsignal: float = 3.1548,
+        force_thermal_F: np.ndarray = None,  # <-- НОВЫЙ ПАРАМЕТР
     ) -> np.ndarray:
         """
         Начальная ковариационная матрица.
 
-        ТОЧНОЕ ВОСПРОИЗВЕДЕНИЕ ThermalState() из оригинального кода:
-        1. Вакуум: sigma = V^(-1/2) ⊕ V^(1/2) для поля, I для детектора
-        2. Тепловое: sigma = sigma_vac @ Coth(beta*w*V^(1/2)/2)
-        3. Сжатие для сигнала
+        Если force_thermal_F задана, используется ОНА для построения начального
+        состояния (вместо F_thermal). Это позволяет сделать начальное состояние
+        одинаковым для всех случаев.
         """
         from scipy.linalg import sqrtm, inv, tanhm
 
         N = self.N
         dim_total = 2 * (N + 1)
 
-        # Извлекаем q-часть и p-часть теплового гамильтониана
-        V = F_thermal[:N, :N]  # q-часть поля
-        T_mat = F_thermal[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1]  # p-часть поля
+        # Если задана принудительная тепловая матрица, используем её
+        actual_F = (
+            force_thermal_F if force_thermal_F is not None else F_thermal
+        )
 
-        # Коэффициент при p² (должен быть mass)
+        V = actual_F[:N, :N]
+        T_mat = actual_F[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1]
+
         w = T_mat[0, 0]
         V_norm = V / w
         T_norm = T_mat / w
 
-        # Вычисляем sqrtm(V_norm) и обратную
         SqrtM = sqrtm(V_norm)
         SqrtMinv = inv(SqrtM)
 
-        # === БАЗОВОЕ СОСТОЯНИЕ: ВАКУУМ ===
+        # Базовое состояние
         sigma = np.eye(dim_total)
-
-        # q-часть поля: V^(-1/2)
         sigma[:N, :N] = SqrtMinv
-
-        # p-часть поля: V^(1/2)
         sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = SqrtM
 
-        # Детектор остаётся I (индексы N и 2N+1 уже 1)
-
-        # === ТЕПЛОВОЕ СОСТОЯНИЕ ===
         if temperature > 0:
-            beta = 1.0 / max(temperature, 1e-15)
-
-            # Аргумент: (beta * w * SqrtM) / 2
-            arg = beta * w * SqrtM / 2.0
-
-            # Вычисляем coth(arg)
             from scipy.linalg import expm as scipy_expm
 
+            beta = 1.0 / max(temperature, 1e-15)
+            arg = beta * w * SqrtM / 2.0
             max_arg = np.max(np.abs(arg))
             if max_arg > 7:
-                # coth(x) ≈ 1 + 2e^(-2x) для больших x
                 coth = np.eye(N)
                 coth += 2 * scipy_expm(-2 * arg)
                 coth += 2 * scipy_expm(-4 * arg)
             else:
                 coth = inv(tanhm(arg))
-
-            # Применяем coth к q- и p-частям поля
             sigma[:N, :N] = sigma[:N, :N] @ coth
             sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = (
                 sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] @ coth
             )
 
-        # === СЖАТИЕ ДЛЯ СИГНАЛЬНОГО СЛУЧАЯ ===
         if is_signal:
             g = Gsignal
-            sigma[0, 0] = sigma[0, 0] / g
-            sigma[N + 1, N + 1] = sigma[N + 1, N + 1] * g
+            # По образу авторов: ЗАМЕНЯЕМ значения, а не умножаем
+            sigma[0, 0] = g  # q_0 = Gsignal
+            sigma[0, N + 1] = 0.0  # обнуляем корреляции
+            sigma[N + 1, 0] = 0.0
+            sigma[N + 1, N + 1] = 1.0 / g  # p_0 = 1/Gsignal
 
         return sigma
 
