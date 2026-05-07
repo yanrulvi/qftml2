@@ -210,7 +210,7 @@ def create_thermometry_config() -> ExperimentConfig:
         Tmin=0.02,
         Tmax=0.20,
         N_times=10,
-        N_tom=1e8,  # <-- УМЕНЬШЕНО ДО 100 000 000
+        N_tom=1e18,
     )
 
     config.ml = MLConfig(

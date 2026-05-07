@@ -9,10 +9,11 @@
 - Вычисление точных средних значений (траекторий)
 - Генерацию данных с томографическим шумом
 
-Основано на оригинальных функциях:
+Основано на оригинальных функциях авторов:
 - multOmega()
 - DefProjList()
 - Tomography()
+- ThermalState()
 """
 
 import numpy as np
@@ -34,9 +35,8 @@ def symplectic_form(dim: int) -> np.ndarray:
 def mult_omega(matrix: np.ndarray) -> np.ndarray:
     """
     Умножает симплектическую форму Ω на матрицу.
-    Точно воспроизводит оригинальную функцию multOmega().
 
-    Для матрицы sigma размером (2p, 2p):
+    Точно воспроизводит оригинальную функцию multOmega():
     res[:p, :p] = sigma[p:2p, :p]
     res[:p, p:2p] = sigma[p:2p, p:2p]
     res[p:2p, :p] = -sigma[:p, :p]
@@ -72,9 +72,8 @@ def compute_unitaries_stepped(
     F: np.ndarray, N_times: int, Tmin: float, Tmax: float
 ) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     """
-    Вычисляет унитарные операторы по шагам, как в оригинальном коде.
+    Вычисляет унитарные операторы по шагам (как в DefProjList).
 
-    Из DefProjList:
     - Создаёт равномерную сетку времён от Tmin до Tmax
     - Вычисляет U_step = exp(ΩF · dT)
     - Последовательно умножает: U[k] = U_step @ U[k-1]
@@ -117,6 +116,11 @@ def build_projectors(N_total: int) -> List[np.ndarray]:
     P0: проектор на q_det
     P2: проектор на p_det
     P1: проектор на r_det = (q_det + p_det)/√2
+
+    Формула из оригинального кода:
+    P1[m-1, 2*m-1] = -1/2
+    P1[2*m-1, m-1] = -1/2
+    P1 += (P0 + P2)/2
     """
     m = N_total
     dim = 2 * m
@@ -169,7 +173,7 @@ def compute_exact_trajectory(
     Вычисляет точные средние значения квадратур детектора.
 
     Returns:
-        Массив размером (N_times, 3)
+        Массив размером (N_times, 3): ⟨q(t)⟩, ⟨r(t)⟩, ⟨p(t)⟩
     """
     N_times = ProjList.shape[0]
     trajectory = np.zeros((N_times, 3))
@@ -193,7 +197,7 @@ def compute_median_trajectory_optimized(
     aS = Tr[dP @ MedRSE0] + Tr[MedProj @ dS] + Tr[dP @ dS]
 
     Returns:
-        (med_traj_flattened, [case_traj_1_flattened, case_traj_2_flattened, ...])
+        (med_traj_flattened, [case_traj_1_flattened, ...])
     """
     N_cases = len(ProjList_list)
     N_times = ProjList_list[0].shape[0]
@@ -232,11 +236,9 @@ def apply_tomography_noise(
 
     Точно воспроизводит оригинальную функцию Tomography():
 
-    Для N_tom == 'Infinity': возвращает точные значения
-    Для N_tom <= 10:
-        a_tom = (Med + a) * chi2(N_tom-1) / (N_tom-1) - Med
-    Для N_tom > 10:
-        a_tom = a + (a + Med) * random.normal(0, sqrt(2/(N_tom-1)))
+    N_tom = 'Infinity': точные значения
+    N_tom <= 10: a_tom = (Med + a) * χ²(N_tom-1) / (N_tom-1) - Med
+    N_tom > 10:  a_tom = a + (a + Med) * N(0, √(2/(N_tom-1)))
     """
     if N_tom == float("inf") or N_tom >= 1e15:
         return trajectory.copy()
@@ -266,10 +268,9 @@ class FieldEvolution:
 
     Объединяет:
     - Построение гамильтонианов для всех случаев
-    - Вычисление унитарных операторов
-    - Вычисление проекторов
+    - Вычисление унитарных операторов и проекторов
     - Расчёт точных траекторий
-    - Добавление томографического шума
+    - Генерацию данных с томографическим шумом
     """
 
     def __init__(self, config):
@@ -291,6 +292,7 @@ class FieldEvolution:
         self.wD_norm = norm["wD_norm"]
         self.lam_norm = norm["lam_norm"]
 
+        # Строим гамильтонианы для каждого случая
         self.H_dynamic = []
         self.H_thermal = []
 
@@ -308,7 +310,11 @@ class FieldEvolution:
     def compute_projectors_for_window(
         self, Tmin: float, Tmax: float
     ) -> List[np.ndarray]:
-        """Вычисляет проекторы для одного временного окна."""
+        """
+        Вычисляет проекторы для одного временного окна [Tmin, Tmax].
+
+        Соответствует вызову DefProjList для каждого случая.
+        """
         N_times = self.measurement.N_times
         ProjList_cases = []
 
@@ -327,13 +333,11 @@ class FieldEvolution:
         """
         Генерирует данные для одного временного окна.
 
-        Включает ВСЕ 9 компонент на каждый момент времени (формула 5):
-        - q̄, r̄, p̄ (средние)
-        - s̄_q, s̄_r, s̄_p (дисперсии)
-        - s̄_{4,q}, s̄_{4,r}, s̄_{4,p} (4-е моменты)
+        Использует ТОЛЬКО средние значения квадратур (3 × N_times признаков),
+        как в оригинальном коде авторов.
 
         Для boundary sensing: одинаковое начальное состояние, разная динамика.
-        Для thermometry: одинаковая динамика, разные температуры.
+        Для thermometry: случайная температура для КАЖДОГО образца (регрессия).
         """
         N_times = self.measurement.N_times
         N_tom = self.measurement.N_tom
@@ -363,20 +367,98 @@ class FieldEvolution:
             sigma=norm_local["sigma_norm"],
         )
 
-        sigma_0_list = []
-        for k, case in enumerate(cases):
-            is_signal = case.boundary_type == 3
+        # Только 3 × N_times признаков (средние q, r, p)
+        N_features = 3 * N_times
 
-            if self.config.is_regression:
-                # ТЕРМОМЕТРИЯ: разные температуры, общий гамильтониан
-                sigma_0 = lattice_local.get_initial_covariance(
+        if self.config.is_regression:
+            # ================================================
+            # ТЕРМОМЕТРИЯ: КАЖДЫЙ ОБРАЗЕЦ ИМЕЕТ СЛУЧАЙНУЮ ТЕМПЕРАТУРУ
+            # ================================================
+            total_samples = N_cases * N_samples_total
+            ExpData = np.zeros((total_samples, N_features + 1))
+
+            temps = np.array([c.temperature for c in cases])
+
+            # Медианные проектор и состояние (для всех случаев)
+            MedProj = np.median(np.array(ProjList_cases), axis=0)
+
+            # Базовые начальные состояния для каждого бина (без томографии)
+            sigma_base_list = []
+            for c in range(N_cases):
+                sigma_base = lattice_local.get_initial_covariance(
                     F_thermal=F_thermal_common,
-                    temperature=case.temperature,
+                    temperature=temps[c],
                     is_signal=False,
                     Gsignal=self.physics.Gsignal,
                 )
-            else:
-                # BOUNDARY SENSING: общее начальное состояние
+                sigma_base_list.append(sigma_base)
+
+            MedRSE0 = np.median(np.array(sigma_base_list), axis=0)
+
+            sample_idx = 0
+            for c in range(N_cases):
+                proj_c = ProjList_cases[c]
+                dP_c = proj_c - MedProj
+
+                for s in range(N_samples_total):
+                    # Случайная температура в диапазоне [T - TDev, T + TDev]
+                    z = 2 * np.random.random() - 1
+                    T_sample = temps[c] + z * self.physics.TDev
+                    T_sample = max(T_sample, 1e-10)
+
+                    # Начальное состояние для этой температуры
+                    sigma_sample = lattice_local.get_initial_covariance(
+                        F_thermal=F_thermal_common,
+                        temperature=T_sample,
+                        is_signal=False,
+                        Gsignal=self.physics.Gsignal,
+                    )
+
+                    # Вычисляем траекторию через разложение
+                    dS = sigma_sample - MedRSE0
+
+                    aS = np.zeros((N_times, 3))
+                    for n in range(N_times):
+                        for r in range(3):
+                            aS[n, r] += np.trace(dP_c[n, r] @ MedRSE0).real
+                            aS[n, r] += np.trace(MedProj[n, r] @ dS).real
+                            aS[n, r] += np.trace(dP_c[n, r] @ dS).real
+
+                    means = aS.flatten()
+
+                    # Томографический шум
+                    # Медианная траектория для шума
+                    med_traj = np.zeros((N_times, 3))
+                    for n in range(N_times):
+                        for r in range(3):
+                            med_traj[n, r] = np.trace(
+                                MedProj[n, r] @ MedRSE0
+                            ).real
+                    med_traj = med_traj.flatten()
+
+                    aS_tom = apply_tomography_noise(means, med_traj, N_tom)
+
+                    ExpData[sample_idx, :N_features] = aS_tom
+                    ExpData[sample_idx, N_features] = T_sample
+                    sample_idx += 1
+
+                if N_samples_total >= 20:
+                    if (
+                        s % max(1, N_samples_total // 5) == 0
+                        or s == N_samples_total - 1
+                    ):
+                        pass  # Прогресс можно добавить при желании
+
+            print(f"    Generated {sample_idx} samples for thermometry window")
+            return ExpData
+
+        else:
+            # ================================================
+            # BOUNDARY SENSING: ОДИНАКОВОЕ НАЧАЛЬНОЕ СОСТОЯНИЕ
+            # ================================================
+            sigma_0_list = []
+            for k, case in enumerate(cases):
+                is_signal = case.boundary_type == 3
                 sigma_0 = lattice_local.get_initial_covariance(
                     F_thermal=self.H_thermal[k],
                     temperature=case.temperature,
@@ -384,82 +466,24 @@ class FieldEvolution:
                     Gsignal=self.physics.Gsignal,
                     force_thermal_F=F_thermal_common,
                 )
+                sigma_0_list.append(sigma_0)
 
-            sigma_0_list.append(sigma_0)
+            MedProj = np.median(np.array(ProjList_cases), axis=0)
+            MedRSE0 = np.median(np.array(sigma_0_list), axis=0)
 
-        # 3. Медианные значения и точные траектории
-        MedProj = np.median(np.array(ProjList_cases), axis=0)
-        MedRSE0 = np.median(np.array(sigma_0_list), axis=0)
+            med_traj, case_trajs = compute_median_trajectory_optimized(
+                ProjList_cases, sigma_0_list, [c.y for c in cases]
+            )
 
-        med_traj, case_trajs = compute_median_trajectory_optimized(
-            ProjList_cases, sigma_0_list, [c.y for c in cases]
-        )
-
-        # 9 × N_times компонент
-        N_features = 9 * N_times
-
-        if self.config.is_regression:
-            # === ТЕРМОМЕТРИЯ ===
-            total_samples = N_cases * N_samples_total
-            ExpData = np.zeros((total_samples, N_features + 1))
-
-            temps = np.array([c.temperature for c in cases])
-
-            for c in range(N_cases):
-                means = case_trajs[c]
-                variances = 2.0 * means**2
-                fourth_moments = 12.0 * means**4
-
-                # СЫРАЯ температура (нормализация будет в process_window)
-                T_raw = temps[c]
-
-                for s in range(N_samples_total):
-                    idx = c * N_samples_total + s
-
-                    means_noisy = apply_tomography_noise(
-                        means, med_traj, N_tom
-                    )
-                    var_noisy = apply_tomography_noise(
-                        variances, 2.0 * med_traj**2, N_tom
-                    )
-                    fourth_noisy = apply_tomography_noise(
-                        fourth_moments, 12.0 * med_traj**4, N_tom
-                    )
-
-                    aS_tom = np.concatenate(
-                        [means_noisy, var_noisy, fourth_noisy]
-                    )
-                    ExpData[idx, :N_features] = aS_tom
-                    ExpData[idx, N_features] = T_raw
-
-            return ExpData
-
-        else:
-            # === BOUNDARY SENSING ===
             total_samples = N_cases * N_samples_total
             ExpData = np.zeros((total_samples, N_features + 1))
 
             for c in range(N_cases):
                 means = case_trajs[c]
-                variances = 2.0 * means**2
-                fourth_moments = 12.0 * means**4
 
                 for s in range(N_samples_total):
                     idx = c * N_samples_total + s
-
-                    means_noisy = apply_tomography_noise(
-                        means, med_traj, N_tom
-                    )
-                    var_noisy = apply_tomography_noise(
-                        variances, 2.0 * med_traj**2, N_tom
-                    )
-                    fourth_noisy = apply_tomography_noise(
-                        fourth_moments, 12.0 * med_traj**4, N_tom
-                    )
-
-                    aS_tom = np.concatenate(
-                        [means_noisy, var_noisy, fourth_noisy]
-                    )
+                    aS_tom = apply_tomography_noise(means, med_traj, N_tom)
                     ExpData[idx, :N_features] = aS_tom
                     ExpData[idx, N_features] = cases[c].y
 
