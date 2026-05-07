@@ -1,0 +1,10 @@
+Experiment: thermometry
+T_mean: 1.000000
+T_dev: 1.000000e-01
+Tmin: 0.02
+Tmax: 0.2
+dt: 0.01
+N_tom: 1e+20
+N_samples: 500
+N_epochs: 500
+Heisenberg time: 0.100

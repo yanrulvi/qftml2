@@ -27,14 +27,16 @@ from typing import List, Tuple
 class LatticeField:
     """
     Одномерная цепочка гармонических осцилляторов с ближайшими соседями.
-    
+
     Гамильтониан (формула 7):
     H_UV = Σₙ (mc²/2)(p̂²ₙ + q̂²ₙ) + (ħ²/2ma²)(q̂ₙ₊₁ - q̂ₙ)²
-    
+
     с граничными условиями из Таблицы I.
     """
-    
-    def __init__(self, n_modes: int, mass: float, lattice_spacing: float = 1.0):
+
+    def __init__(
+        self, n_modes: int, mass: float, lattice_spacing: float = 1.0
+    ):
         """
         Args:
             n_modes: число пространственных мод (N в статье)
@@ -44,18 +46,18 @@ class LatticeField:
         self.N = n_modes
         self.mass = mass
         self.a = lattice_spacing
-        
+
         # Полное число степеней свободы: поле + детектор
         self.N_total = n_modes + 1
         self.dim = 2 * self.N_total
-    
+
     def build_adjacency_list(self) -> List[List[int]]:
         """
         Строит список соседей для одномерной цепочки.
-        
+
         Из оригинального кода:
         SquareLatticeAdjList(L, d=1, IncludeBulk=True, IncludePeriodic=False)
-        
+
         Returns:
             adj[i] — список соседей узла i
         """
@@ -63,72 +65,74 @@ class LatticeField:
         for i in range(self.N):
             neighbors = []
             if i > 0:
-                neighbors.append(i - 1)     # Левый сосед
+                neighbors.append(i - 1)  # Левый сосед
             if i < self.N - 1:
-                neighbors.append(i + 1)     # Правый сосед
+                neighbors.append(i + 1)  # Правый сосед
             adj.append(neighbors)
         return adj
-    
-    def build_env_interaction_matrix(self, adj: List[List[int]] | None = None) -> np.ndarray:
+
+    def build_env_interaction_matrix(
+        self, adj: List[List[int]] | None = None
+    ) -> np.ndarray:
         """
         Строит матрицу взаимодействия ближайших соседей.
-        
+
         Из оригинального кода: EnvIntHam(adjList)
         Для каждой пары соседей (i,j): F[i,j] = -1 (один раз для каждой связи)
-        
+
         Возвращает:
             Матрица размером (N, N) с взаимодействиями
         """
         if adj is None:
             adj = self.build_adjacency_list()
-        
+
         F = np.zeros((self.N, self.N))
         for i in range(self.N):
             for j in adj[i]:
                 if i < j:  # Каждую связь учитываем один раз
                     F[i, j] = -1.0
                     F[j, i] = -1.0
-        
+
         return F
-    
+
     def build_free_hamiltonian_q(self) -> np.ndarray:
         """
         Строит q-часть свободного гамильтониана поля (HE0_q).
-        
+
         Из оригинального кода:
         HE0_q = (m + 2/m) * eye(N) + (1/m) * EnvIntHam
-        
+
         В безразмерных единицах (ħ=c=a=1) формула (7) даёт:
         m/2 · p̂²ₙ + (m/2 + 1/m) · q̂²ₙ - 1/m · q̂ₙq̂ₙ₊₁
-        
+
         Матрица F для H = ½XᵀFX:
         F_qq = m + 2/m (диагональ) + (1/m) * EnvIntHam
         """
         F_q = np.zeros((self.N, self.N))
-        
+
         # Диагональные члены (свободное поле)
         np.fill_diagonal(F_q, self.mass + 2.0 / self.mass)
-        
+
         # Взаимодействие ближайших соседей
         adj = self.build_adjacency_list()
         F_int = self.build_env_interaction_matrix(adj)
         F_q += (1.0 / self.mass) * F_int
-        
+
         return F_q
-    
+
     def build_free_hamiltonian_p(self) -> np.ndarray:
         """
         Строит p-часть свободного гамильтониана поля (HE0_p).
-        
+
         Из оригинального кода:
         HE0_p = m * eye(N)
-        
+
         В безразмерных единицах p-часть: m·p̂²ₙ → матрица F_pp = m·I.
         """
         return self.mass * np.eye(self.N)
-    
+
     def build_full_hamiltonian_matrix(
-        self, 
+        self,
         boundary_type: int = 1,
         detector_distance: int | None = None,
         omega_D: float = 10.0,
@@ -138,15 +142,15 @@ class LatticeField:
         """
         Строит полную матрицу гамильтониана F (H = ½XᵀFX)
         для системы поле + детектор.
-        
+
         Реализует ComputeHams из оригинального кода.
-        
+
         Фазовая структура:
         X = (q₁, ..., q_N, q_det, p₁, ..., p_N, p_det)
-        
+
         Returns:
             (F_dynamic, F_thermal) — матрицы для динамики и для теплового состояния
-        
+
         Таблица I:
         - B=1 (Full Bond): полная связь
         - B=2 (No Bond): разорвана связь между узлами 0 и 1
@@ -154,14 +158,14 @@ class LatticeField:
         """
         N = self.N
         dim_total = 2 * (N + 1)
-        
+
         # Матрицы для q и p частей поля
         F_q = self.build_free_hamiltonian_q()
         F_p = self.build_free_hamiltonian_p()
-        
+
         # Модификация границы (Таблица I)
         F_q_thermal = F_q.copy()
-        
+
         if boundary_type == 1:
             # Full Bond — ничего не меняем
             pass
@@ -174,98 +178,105 @@ class LatticeField:
             # Signal — dynamic с полной связью, thermal без связи
             F_q_thermal[0, 1] = 0.0
             F_q_thermal[1, 0] = 0.0
-        
+
         # Строим полную матрицу
         F = np.zeros((dim_total, dim_total))
-        
+
         # q-часть поля: индексы 0..N-1
         F[:N, :N] = F_q
-        
+
         # q-часть детектора: индекс N
         F[N, N] = omega_D
-        
+
         # p-часть поля: индексы N+1..2N
-        F[N+1:2*N+1, N+1:2*N+1] = F_p
-        
+        F[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = F_p
+
         # p-часть детектора: индекс 2N+1
-        F[2*N+1, 2*N+1] = 1.0  # Единичный коэффициент при p²_det
-        
+        F[2 * N + 1, 2 * N + 1] = 1.0  # Единичный коэффициент при p²_det
+
         # Взаимодействие детектор-поле (SetupSAHam)
         if detector_distance is None:
             detector_distance = N
-        
-        n_A = detector_distance - 1  # Индекс узла (0-based), к которому подключён детектор
-        
+
+        n_A = (
+            detector_distance - 1
+        )  # Индекс узла (0-based), к которому подключён детектор
+
         for x in range(N):
             # Гауссово смазывание (формула B1)
-            weight = np.exp(-(x - n_A)**2 / (2 * sigma**2)) / (sigma * np.sqrt(2 * np.pi))
+            weight = np.exp(-((x - n_A) ** 2) / (2 * sigma**2)) / (
+                sigma * np.sqrt(2 * np.pi)
+            )
             # Связь q_det (индекс N) с q_x (индекс x)
             F[N, x] += lam * weight
             F[x, N] += lam * weight
-        
+
         # Тепловая матрица (может отличаться для B=3)
         F_thermal = F.copy()
         if boundary_type == 3:
-            F_thermal[:N, :N] = F_q_thermal  # Используем модифицированную q-часть
-        
+            F_thermal[:N, :N] = (
+                F_q_thermal  # Используем модифицированную q-часть
+            )
+
         self.F_dynamic = F
         self.F_thermal = F_thermal
-        
+
         return F, F_thermal
-    
+
     def get_initial_covariance(
-        self, 
-        F_thermal: np.ndarray, 
+        self,
+        F_thermal: np.ndarray,
         temperature: float = 0.0,
         is_signal: bool = False,
-        Gsignal: float = 3.1548
+        Gsignal: float = 3.1548,
     ) -> np.ndarray:
         """
         Начальная ковариационная матрица.
-        
+
         ТОЧНОЕ ВОСПРОИЗВЕДЕНИЕ ThermalState() из оригинального кода:
         1. Вакуум: sigma = V^(-1/2) ⊕ V^(1/2) для поля, I для детектора
         2. Тепловое: sigma = sigma_vac @ Coth(beta*w*V^(1/2)/2)
         3. Сжатие для сигнала
         """
         from scipy.linalg import sqrtm, inv, tanhm
-        
+
         N = self.N
         dim_total = 2 * (N + 1)
-        
+
         # Извлекаем q-часть и p-часть теплового гамильтониана
-        V = F_thermal[:N, :N]                    # q-часть поля
-        T_mat = F_thermal[N+1:2*N+1, N+1:2*N+1]  # p-часть поля
-        
+        V = F_thermal[:N, :N]  # q-часть поля
+        T_mat = F_thermal[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1]  # p-часть поля
+
         # Коэффициент при p² (должен быть mass)
         w = T_mat[0, 0]
         V_norm = V / w
         T_norm = T_mat / w
-        
+
         # Вычисляем sqrtm(V_norm) и обратную
         SqrtM = sqrtm(V_norm)
         SqrtMinv = inv(SqrtM)
-        
+
         # === БАЗОВОЕ СОСТОЯНИЕ: ВАКУУМ ===
         sigma = np.eye(dim_total)
-        
+
         # q-часть поля: V^(-1/2)
         sigma[:N, :N] = SqrtMinv
-        
+
         # p-часть поля: V^(1/2)
-        sigma[N+1:2*N+1, N+1:2*N+1] = SqrtM
-        
+        sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = SqrtM
+
         # Детектор остаётся I (индексы N и 2N+1 уже 1)
-        
+
         # === ТЕПЛОВОЕ СОСТОЯНИЕ ===
         if temperature > 0:
             beta = 1.0 / max(temperature, 1e-15)
-            
+
             # Аргумент: (beta * w * SqrtM) / 2
             arg = beta * w * SqrtM / 2.0
-            
+
             # Вычисляем coth(arg)
             from scipy.linalg import expm as scipy_expm
+
             max_arg = np.max(np.abs(arg))
             if max_arg > 7:
                 # coth(x) ≈ 1 + 2e^(-2x) для больших x
@@ -274,23 +285,25 @@ class LatticeField:
                 coth += 2 * scipy_expm(-4 * arg)
             else:
                 coth = inv(tanhm(arg))
-            
+
             # Применяем coth к q- и p-частям поля
             sigma[:N, :N] = sigma[:N, :N] @ coth
-            sigma[N+1:2*N+1, N+1:2*N+1] = sigma[N+1:2*N+1, N+1:2*N+1] @ coth
-        
+            sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] = (
+                sigma[N + 1 : 2 * N + 1, N + 1 : 2 * N + 1] @ coth
+            )
+
         # === СЖАТИЕ ДЛЯ СИГНАЛЬНОГО СЛУЧАЯ ===
         if is_signal:
             g = Gsignal
             sigma[0, 0] = sigma[0, 0] / g
-            sigma[N+1, N+1] = sigma[N+1, N+1] * g
-        
+            sigma[N + 1, N + 1] = sigma[N + 1, N + 1] * g
+
         return sigma
 
     def get_detector_indices(self) -> Tuple[int, int]:
         """
         Возвращает индексы детектора в фазовом пространстве.
-        
+
         Returns:
             (q_idx, p_idx) — индексы q_det и p_det
         """

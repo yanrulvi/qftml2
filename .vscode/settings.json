@@ -1,0 +1,7 @@
+{
+    "flake8.ignorePatterns": [
+        "data/*.py",
+        "legacy/**",
+        "temp/*.py"
+    ]
+}
