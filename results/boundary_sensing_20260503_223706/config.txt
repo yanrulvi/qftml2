@@ -1,9 +1,0 @@
-Experiment: boundary_sensing
-LatticeLength: 10
-sigma: 4.2
-mcc: 0.1
-wD: 10.0
-lam: 10.0
-N_tom: 1e+06
-N_samples: 500
-N_epochs: 500

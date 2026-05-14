@@ -173,7 +173,7 @@ class MeasurementConfig:
     @property
     def heisenberg_time(self) -> float:
         """Время Гейзенберга детектора"""
-        return 1.0 / 10.0  # 1/wD для wD=10
+        return 1.0
 
     @property
     def light_crossing_time(self) -> float:
@@ -289,7 +289,7 @@ def create_boundary_config() -> ExperimentConfig:
     # Временные окна: от 2 до 22 (20 окон)
     # Световое время = 10, измерения захватывают и до, и после
     config.measurement = MeasurementConfig(
-        dt=0.5,
+        dt=0.25,
         Tmin=1.0,
         Tmax=22.0,
         N_times=10,
@@ -356,11 +356,11 @@ def create_thermometry_config() -> ExperimentConfig:
     # Временные окна: от 0.5 до 5.0 (9 окон)
     # 0.5 ≈ 5 ps (начало), 1.6 ≈ 16 ps (время Гейзенберга), 5.0 ≈ 50 ps (конец)
     config.measurement = MeasurementConfig(
-        dt=0.1,
-        Tmin=0.5,
-        Tmax=13.0,
+        dt=0.2,
+        Tmin=0.1,
+        Tmax=13.1,
         N_times=10,
-        N_tom=1e10,  # 10^6 для реалистичного графика (в статье 10^20)
+        N_tom=1e14,  # 10^6 для реалистичного графика (в статье 10^20)
     )
 
     config.ml = MLConfig(
@@ -399,5 +399,5 @@ def create_test_config() -> ExperimentConfig:
     config.measurement.Tmin = 2.0
     config.measurement.Tmax = 14.0
     config.ml.N_samples = 300
-    config.ml.N_epochs = 200
+    config.ml.n_epochs = 200
     return config
